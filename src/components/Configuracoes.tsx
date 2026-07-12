@@ -50,6 +50,7 @@ export default function Configuracoes({
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isPwaInstalled, setIsPwaInstalled] = useState<boolean>(false);
   const [isCopiedId, setIsCopiedId] = useState<boolean>(false);
+  const [isInIframe, setIsInIframe] = useState<boolean>(false);
 
   // Admin licensing states
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -57,6 +58,8 @@ export default function Configuracoes({
 
   // Monitor installation prompt
   useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -336,6 +339,29 @@ export default function Configuracoes({
               Este sistema é totalmente compatível com **PWA (Progressive Web App)**. Você pode transformá-lo em um aplicativo nativo para celular e computador em segundos, garantindo inicialização veloz e ícone na tela inicial.
             </p>
 
+            {isInIframe && (
+              <div className="p-4 rounded-xl border border-neon-orange/30 bg-neon-orange/5 space-y-2.5">
+                <div className="flex gap-1.5 items-center text-[10px] font-black text-neon-orange uppercase tracking-wider">
+                  <AlertCircle size={15} />
+                  <span>Aviso de Janela Integrada (Iframe)</span>
+                </div>
+                <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
+                  Você está visualizando o sistema dentro de uma janela integrada de desenvolvimento. Por questões de segurança, os navegadores **bloqueiam** o botão de instalação automática PWA de rodar dentro de painéis integrados.
+                </p>
+                <div className="pt-1">
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-neon-blue hover:bg-neon-blue/90 active:scale-98 text-black font-black uppercase text-[10px] tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-neon-blue/10"
+                  >
+                    <Share2 size={12} />
+                    Abrir em Nova Aba Standalone
+                  </a>
+                </div>
+              </div>
+            )}
+
             {isPwaInstalled ? (
               <div className="p-3 bg-neon-green/5 border border-neon-green/20 text-neon-green rounded-xl text-xs flex items-center gap-2 font-bold uppercase tracking-wide">
                 <CheckCircle2 size={16} />
@@ -363,38 +389,45 @@ export default function Configuracoes({
                     </span>
                   </button>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {/* Android Instructions */}
-                    <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-green uppercase">
-                        <Smartphone size={14} />
-                        No Android (Celular)
-                      </div>
-                      <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
-                        Abra no Chrome, toque nos <strong className="text-white">3 pontinhos</strong> superiores e selecione <strong className="text-white">"Instalar aplicativo"</strong> ou <strong className="text-white">"Adicionar à tela de início"</strong>.
+                  <div className="space-y-3">
+                    {!isInIframe && (
+                      <p className="text-[10px] text-neon-purple font-bold uppercase tracking-wide bg-neon-purple/5 border border-neon-purple/10 px-3 py-1.5 rounded-lg">
+                        ℹ️ O sinal automático de instalação do seu navegador ainda não disparou ou o sistema já está instalado. Você pode instalar manualmente usando as instruções a seguir:
                       </p>
-                    </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* Android Instructions */}
+                      <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-green uppercase">
+                          <Smartphone size={14} />
+                          No Android (Celular)
+                        </div>
+                        <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
+                          Abra no Chrome, toque nos <strong className="text-white">3 pontinhos</strong> superiores e selecione <strong className="text-white">"Instalar aplicativo"</strong> ou <strong className="text-white">"Adicionar à tela de início"</strong>.
+                        </p>
+                      </div>
 
-                    {/* iOS Instructions */}
-                    <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-orange uppercase">
-                        <Share2 size={14} />
-                        No iPhone / iOS
+                      {/* iOS Instructions */}
+                      <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-orange uppercase">
+                          <Share2 size={14} />
+                          No iPhone / iOS
+                        </div>
+                        <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
+                          Abra no navegador <strong className="text-white">Safari</strong>, toque no botão de <strong className="text-white">Compartilhar</strong> (ícone de seta pra cima) e escolha <strong className="text-white">"Adicionar à Tela de Início"</strong>.
+                        </p>
                       </div>
-                      <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
-                        Abra no navegador <strong className="text-white">Safari</strong>, toque no botão de <strong className="text-white">Compartilhar</strong> (ícone de seta pra cima) e escolha <strong className="text-white">"Adicionar à Tela de Início"</strong>.
-                      </p>
-                    </div>
 
-                    {/* PC/Desktop Instructions */}
-                    <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-blue uppercase">
-                        <Monitor size={14} />
-                        No PC / Computador
+                      {/* PC/Desktop Instructions */}
+                      <div className="p-3.5 rounded-xl border border-white/5 bg-black/40 text-left space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-black text-neon-blue uppercase">
+                          <Monitor size={14} />
+                          No PC / Computador
+                        </div>
+                        <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
+                          Clique no ícone de <strong className="text-white">computador com seta (+)</strong> no lado direito da barra de endereços do seu Chrome/Edge para instalar.
+                        </p>
                       </div>
-                      <p className="text-[10px] text-gray-400 leading-relaxed font-semibold uppercase">
-                        Clique no ícone de <strong className="text-white">computador com seta (+)</strong> no lado direito da barra de endereços do seu Chrome/Edge para instalar.
-                      </p>
                     </div>
                   </div>
                 )}
