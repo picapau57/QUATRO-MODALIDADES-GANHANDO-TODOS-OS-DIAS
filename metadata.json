@@ -1,0 +1,6 @@
+{
+  "name": "Quatro Modalidades",
+  "description": "Sistema web moderno de análise estatística, gerenciamento de resultados e geração de combinações para quatro modalidades de jogos de sorte.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
