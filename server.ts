@@ -528,8 +528,8 @@ async function startServer() {
 
   // Only start listening if we are NOT on Vercel
   if (!process.env.VERCEL) {
-    const PORT = 3000;
-    app.listen(PORT, "0.0.0.0", () => {
+    const PORT = process.env.PORT || 3000;
+    app.listen(Number(PORT), "0.0.0.0", () => {
       console.log(`Server running on http://0.0.0.0:${PORT} in ${process.env.NODE_ENV || "development"} mode`);
     });
   }
