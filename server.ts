@@ -89,7 +89,7 @@ function saveDB(db: DatabaseSchema) {
 const app = express();
 app.use(express.json());
 
-// Log requests and normalize URLs for Vercel routing compatibility
+// Log requests and normalize URLs for Vercel/Netlify routing compatibility
 app.use((req, res, next) => {
   const forwardedPath = req.headers["x-vercel-forwarded-path"] as string;
   const matchedPath = req.headers["x-matched-path"] as string;
@@ -101,6 +101,15 @@ app.use((req, res, next) => {
   // Clean any Vercel internal function mapping prefix if present (e.g. /api/index.ts/api/auth/login -> /api/auth/login)
   const prefixes = ["/api/index.ts", "/api/index.js", "/api/index", "/api/index.cjs"];
   for (const prefix of prefixes) {
+    if (url.startsWith(prefix)) {
+      url = url.substring(prefix.length);
+      break;
+    }
+  }
+
+  // Clean any Netlify functions prefix if present
+  const netlifyPrefixes = ["/.netlify/functions/api", "/.netlify/functions/index"];
+  for (const prefix of netlifyPrefixes) {
     if (url.startsWith(prefix)) {
       url = url.substring(prefix.length);
       break;
@@ -526,8 +535,8 @@ async function startServer() {
     });
   }
 
-  // Only start listening if we are NOT on Vercel
-  if (!process.env.VERCEL) {
+  // Only start listening if we are NOT on Vercel or Netlify serverless
+  if (!process.env.VERCEL && !process.env.NETLIFY) {
     const PORT = process.env.PORT || 3000;
     app.listen(Number(PORT), "0.0.0.0", () => {
       console.log(`Server running on http://0.0.0.0:${PORT} in ${process.env.NODE_ENV || "development"} mode`);
@@ -535,8 +544,8 @@ async function startServer() {
   }
 }
 
-// Start server if we are either in development or not on Vercel
-if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+// Start server if we are in development, or if we are not on a serverless platform
+if (process.env.NODE_ENV !== "production" || (!process.env.VERCEL && !process.env.NETLIFY)) {
   startServer();
 }
 
