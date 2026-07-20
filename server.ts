@@ -91,9 +91,12 @@ app.use(express.json());
 
 // Log requests and normalize URLs for Vercel routing compatibility
 app.use((req, res, next) => {
-  console.log(`[Request] Method: ${req.method} | Original URL: ${req.url} | Headers: x-matched-path: ${req.headers["x-matched-path"]}, x-vercel-forwarded-path: ${req.headers["x-vercel-forwarded-path"]}`);
+  const forwardedPath = req.headers["x-vercel-forwarded-path"] as string;
+  const matchedPath = req.headers["x-matched-path"] as string;
   
-  let url = req.url;
+  console.log(`[Request] Method: ${req.method} | Original URL: ${req.url} | x-vercel-forwarded-path: ${forwardedPath} | x-matched-path: ${matchedPath}`);
+  
+  let url = forwardedPath || req.url;
   
   // Clean any Vercel internal function mapping prefix if present (e.g. /api/index.ts/api/auth/login -> /api/auth/login)
   const prefixes = ["/api/index.ts", "/api/index.js", "/api/index", "/api/index.cjs"];
@@ -112,6 +115,14 @@ app.use((req, res, next) => {
   // Ensure "/api" prefix for route matching if stripped (excluding static files with extensions or root)
   if (!url.startsWith("/api") && !url.includes(".") && url !== "/") {
     url = "/api" + url;
+  }
+  
+  // Restore query string if it was lost during x-vercel-forwarded-path extraction
+  if (forwardedPath && !url.includes("?")) {
+    const queryIndex = req.url.indexOf("?");
+    if (queryIndex !== -1) {
+      url += req.url.substring(queryIndex);
+    }
   }
   
   console.log(`[Request] Resolved URL: ${url}`);
