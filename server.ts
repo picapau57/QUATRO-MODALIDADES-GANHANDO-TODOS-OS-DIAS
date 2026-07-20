@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
 interface DatabaseSchema {
   users: any[];
@@ -15,7 +16,9 @@ interface DatabaseSchema {
   logs: any[];
 }
 
-const DB_FILE = path.join(process.cwd(), "database.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_FILE = path.join(__dirname, "database.json");
 
 let inMemoryDB: DatabaseSchema | null = null;
 
@@ -87,6 +90,22 @@ function saveDB(db: DatabaseSchema) {
 
 const app = express();
 app.use(express.json());
+
+// Log requests and normalize URLs for Vercel routing compatibility
+app.use((req, res, next) => {
+  console.log(`[Request] Method: ${req.method} | URL: ${req.url} | Path: ${req.path}`);
+  
+  // Strip Vercel's internal function path mapping if present
+  if (req.url.startsWith("/api/index.ts")) {
+    req.url = req.url.replace("/api/index.ts", "/api");
+  }
+  
+  // Ensure "/api" prefix for routing matching if stripped
+  if (!req.url.startsWith("/api") && !req.url.includes(".") && req.url !== "/") {
+    req.url = "/api" + req.url;
+  }
+  next();
+});
 
   // API Routes
   // 1. Auth API
