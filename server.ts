@@ -91,35 +91,31 @@ app.use(express.json());
 
 // Log requests and normalize URLs for Vercel routing compatibility
 app.use((req, res, next) => {
-  const matchedPath = req.headers["x-matched-path"] as string;
-  const forwardedPath = req.headers["x-vercel-forwarded-path"] as string;
-  const originalPath = matchedPath || forwardedPath || req.url;
+  console.log(`[Request] Method: ${req.method} | Original URL: ${req.url} | Headers: x-matched-path: ${req.headers["x-matched-path"]}, x-vercel-forwarded-path: ${req.headers["x-vercel-forwarded-path"]}`);
   
-  console.log(`[Request] Method: ${req.method} | URL: ${req.url} | Matched: ${matchedPath} | Forwarded: ${forwardedPath} | FinalResolved: ${originalPath}`);
+  let url = req.url;
   
-  let cleanedPath = originalPath;
-  
-  // Strip query parameters from path if any for processing
-  const queryIndex = cleanedPath.indexOf("?");
-  let pathOnly = queryIndex !== -1 ? cleanedPath.substring(0, queryIndex) : cleanedPath;
-  const queryString = queryIndex !== -1 ? cleanedPath.substring(queryIndex) : "";
-
-  // Strip Vercel's internal function path mapping if present
-  if (pathOnly.startsWith("/api/index.ts")) {
-    pathOnly = pathOnly.replace("/api/index.ts", "/api");
-  } else if (pathOnly.startsWith("/api/index.js")) {
-    pathOnly = pathOnly.replace("/api/index.js", "/api");
-  } else if (pathOnly.startsWith("/api/index")) {
-    pathOnly = pathOnly.replace("/api/index", "/api");
+  // Clean any Vercel internal function mapping prefix if present (e.g. /api/index.ts/api/auth/login -> /api/auth/login)
+  const prefixes = ["/api/index.ts", "/api/index.js", "/api/index", "/api/index.cjs"];
+  for (const prefix of prefixes) {
+    if (url.startsWith(prefix)) {
+      url = url.substring(prefix.length);
+      break;
+    }
   }
   
-  // Ensure "/api" prefix for routing matching if stripped
-  if (!pathOnly.startsWith("/api") && !pathOnly.includes(".") && pathOnly !== "/") {
-    pathOnly = "/api" + pathOnly;
+  // Ensure we have leading slash
+  if (!url.startsWith("/")) {
+    url = "/" + url;
   }
   
-  // Reconstruct req.url
-  req.url = pathOnly + queryString;
+  // Ensure "/api" prefix for route matching if stripped (excluding static files with extensions or root)
+  if (!url.startsWith("/api") && !url.includes(".") && url !== "/") {
+    url = "/api" + url;
+  }
+  
+  console.log(`[Request] Resolved URL: ${url}`);
+  req.url = url;
   next();
 });
 
