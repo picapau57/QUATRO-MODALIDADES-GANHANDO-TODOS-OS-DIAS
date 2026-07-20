@@ -16,9 +16,7 @@ interface DatabaseSchema {
   logs: any[];
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DB_FILE = path.join(__dirname, "database.json");
+const DB_FILE = path.join(process.cwd(), "database.json");
 
 let inMemoryDB: DatabaseSchema | null = null;
 
@@ -93,17 +91,35 @@ app.use(express.json());
 
 // Log requests and normalize URLs for Vercel routing compatibility
 app.use((req, res, next) => {
-  console.log(`[Request] Method: ${req.method} | URL: ${req.url} | Path: ${req.path}`);
+  const matchedPath = req.headers["x-matched-path"] as string;
+  const forwardedPath = req.headers["x-vercel-forwarded-path"] as string;
+  const originalPath = matchedPath || forwardedPath || req.url;
   
+  console.log(`[Request] Method: ${req.method} | URL: ${req.url} | Matched: ${matchedPath} | Forwarded: ${forwardedPath} | FinalResolved: ${originalPath}`);
+  
+  let cleanedPath = originalPath;
+  
+  // Strip query parameters from path if any for processing
+  const queryIndex = cleanedPath.indexOf("?");
+  let pathOnly = queryIndex !== -1 ? cleanedPath.substring(0, queryIndex) : cleanedPath;
+  const queryString = queryIndex !== -1 ? cleanedPath.substring(queryIndex) : "";
+
   // Strip Vercel's internal function path mapping if present
-  if (req.url.startsWith("/api/index.ts")) {
-    req.url = req.url.replace("/api/index.ts", "/api");
+  if (pathOnly.startsWith("/api/index.ts")) {
+    pathOnly = pathOnly.replace("/api/index.ts", "/api");
+  } else if (pathOnly.startsWith("/api/index.js")) {
+    pathOnly = pathOnly.replace("/api/index.js", "/api");
+  } else if (pathOnly.startsWith("/api/index")) {
+    pathOnly = pathOnly.replace("/api/index", "/api");
   }
   
   // Ensure "/api" prefix for routing matching if stripped
-  if (!req.url.startsWith("/api") && !req.url.includes(".") && req.url !== "/") {
-    req.url = "/api" + req.url;
+  if (!pathOnly.startsWith("/api") && !pathOnly.includes(".") && pathOnly !== "/") {
+    pathOnly = "/api" + pathOnly;
   }
+  
+  // Reconstruct req.url
+  req.url = pathOnly + queryString;
   next();
 });
 
