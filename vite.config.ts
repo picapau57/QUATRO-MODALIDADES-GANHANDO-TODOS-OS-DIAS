@@ -4,8 +4,23 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
 
-const _filename = fileURLToPath(import.meta.url);
-const _dirname = path.dirname(_filename);
+let _filename = "";
+let _dirname = "";
+try {
+  if (typeof import.meta !== "undefined" && (import.meta as any)?.url) {
+    _filename = fileURLToPath((import.meta as any).url);
+    _dirname = path.dirname(_filename);
+  } else if (typeof __filename !== "undefined") {
+    _filename = __filename;
+    _dirname = __dirname;
+  } else {
+    _dirname = process.cwd();
+    _filename = path.join(_dirname, "vite.config.ts");
+  }
+} catch (e) {
+  _dirname = process.cwd();
+  _filename = path.join(_dirname, "vite.config.ts");
+}
 
 export default defineConfig(() => {
   return {

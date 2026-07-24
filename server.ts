@@ -3,8 +3,23 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-const _filename = fileURLToPath(import.meta.url);
-const _dirname = path.dirname(_filename);
+let _filename = "";
+let _dirname = "";
+try {
+  if (typeof import.meta !== "undefined" && (import.meta as any)?.url) {
+    _filename = fileURLToPath((import.meta as any).url);
+    _dirname = path.dirname(_filename);
+  } else if (typeof __filename !== "undefined") {
+    _filename = __filename;
+    _dirname = __dirname;
+  } else {
+    _dirname = process.cwd();
+    _filename = path.join(_dirname, "server.ts");
+  }
+} catch (e) {
+  _dirname = process.cwd();
+  _filename = path.join(_dirname, "server.ts");
+}
 
 interface DatabaseSchema {
   users: any[];
