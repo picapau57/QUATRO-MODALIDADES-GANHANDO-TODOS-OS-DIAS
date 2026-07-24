@@ -20,18 +20,48 @@ const DB_FILE = path.join(process.cwd(), "database.json");
 
 let inMemoryDB: DatabaseSchema | null = null;
 
+// Helper to locate database.json across serverless/bundled directory structures
+function getDBFilePath(): string {
+  const candidatePaths = [
+    path.join(process.cwd(), "database.json"),
+    path.join(__dirname, "database.json"),
+    path.join(__dirname, "..", "database.json"),
+    path.join(__dirname, "..", "..", "database.json")
+  ];
+
+  for (const candidate of candidatePaths) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch (e) {
+      // Ignore permission or file check error
+    }
+  }
+  return path.join(process.cwd(), "database.json");
+}
+
 // Helper to load or initialize DB
 function loadDB(): DatabaseSchema {
   if (inMemoryDB) {
     return inMemoryDB;
   }
 
+  const dbFile = getDBFilePath();
+
   // Try to load from file
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, "utf8");
+    if (fs.existsSync(dbFile)) {
+      const raw = fs.readFileSync(dbFile, "utf8");
       inMemoryDB = JSON.parse(raw);
-      return inMemoryDB!;
+      if (inMemoryDB) {
+        if (!Array.isArray(inMemoryDB.users)) inMemoryDB.users = [];
+        if (!Array.isArray(inMemoryDB.results)) inMemoryDB.results = [];
+        if (!Array.isArray(inMemoryDB.games)) inMemoryDB.games = [];
+        if (!Array.isArray(inMemoryDB.favorites)) inMemoryDB.favorites = [];
+        if (!Array.isArray(inMemoryDB.logs)) inMemoryDB.logs = [];
+        return inMemoryDB;
+      }
     }
   } catch (e) {
     console.warn("Could not read database.json, using fallback/initial state", e);
@@ -40,7 +70,7 @@ function loadDB(): DatabaseSchema {
   // Fallback initial database
   const initialDB: DatabaseSchema = {
     users: [
-      { id: "1", username: "admin", password: "123", role: "admin" }
+      { id: "1", username: "admin", password: "123", role: "admin", active: true, devices: [] }
     ],
     results: [
       { id: "seed-1", data: "2026-07-10", horario: "11:30", extracao: "PTM", r1: "1965", r2: "8421", r3: "5078", r4: "9934", r5: "0212" },
@@ -68,7 +98,7 @@ function loadDB(): DatabaseSchema {
   };
 
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialDB, null, 2), "utf8");
+    fs.writeFileSync(dbFile, JSON.stringify(initialDB, null, 2), "utf8");
   } catch (e) {
     console.warn("Could not write initial database.json (read-only filesystem)", e);
   }
@@ -80,14 +110,33 @@ function loadDB(): DatabaseSchema {
 function saveDB(db: DatabaseSchema) {
   inMemoryDB = db;
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+    const dbFile = getDBFilePath();
+    fs.writeFileSync(dbFile, JSON.stringify(db, null, 2), "utf8");
   } catch (e) {
     console.warn("Could not write to database.json (read-only filesystem)", e);
   }
 }
 
 const app = express();
-app.use(express.json());
+
+// Body parsing setup
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Safely handle stringified bodies or missing body objects in serverless environments
+app.use((req, res, next) => {
+  if (typeof req.body === "string" && req.body.trim()) {
+    try {
+      req.body = JSON.parse(req.body);
+    } catch (e) {
+      // Ignore parse failure
+    }
+  }
+  if (!req.body || typeof req.body !== "object") {
+    req.body = {};
+  }
+  next();
+});
 
 // Log requests and normalize URLs for Vercel/Netlify routing compatibility
 app.use((req, res, next) => {
@@ -98,7 +147,7 @@ app.use((req, res, next) => {
   
   let url = forwardedPath || req.url;
   
-  // Clean any Vercel internal function mapping prefix if present (e.g. /api/index.ts/api/auth/login -> /api/auth/login)
+  // Clean any Vercel internal function mapping prefix if present
   const prefixes = ["/api/index.ts", "/api/index.js", "/api/index", "/api/index.cjs"];
   for (const prefix of prefixes) {
     if (url.startsWith(prefix)) {
@@ -108,7 +157,12 @@ app.use((req, res, next) => {
   }
 
   // Clean any Netlify functions prefix if present
-  const netlifyPrefixes = ["/.netlify/functions/api", "/.netlify/functions/index"];
+  const netlifyPrefixes = [
+    "/.netlify/functions/api",
+    "/.netlify/functions/index",
+    "/.netlify/functions/api/",
+    "/.netlify/functions/index/"
+  ];
   for (const prefix of netlifyPrefixes) {
     if (url.startsWith(prefix)) {
       url = url.substring(prefix.length);
@@ -142,106 +196,129 @@ app.use((req, res, next) => {
   // API Routes
   // 1. Auth API
   app.post("/api/auth/login", (req, res) => {
-    const { username, password, deviceId } = req.body;
-    const db = loadDB();
-    const user = db.users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
-    
-    if (user) {
-      const isUserAdmin = user.role === "admin";
-      
-      // Check if user is active (admins are always active)
-      if (!isUserAdmin && user.active === false) {
-        return res.status(403).json({
+    try {
+      const { username = "", password = "", deviceId = "" } = req.body || {};
+
+      if (!username || !password) {
+        return res.status(400).json({
           success: false,
-          unactivated: true,
-          message: "Sua conta ainda não foi ativada. Realize o pagamento único de R$ 99,90 e envie o comprovante para o WhatsApp (62) 98575-6881 para liberar seu acesso."
+          message: "Por favor, preencha o usuário e a senha."
         });
       }
 
-      // Handle Device Registering/Checking
-      if (!isUserAdmin && deviceId) {
-        if (!user.devices) {
-          user.devices = [];
-        }
+      const db = loadDB();
+      const user = db.users.find(
+        u => u && u.username && u.username.toLowerCase() === username.toString().toLowerCase() && u.password === password.toString()
+      );
+      
+      if (user) {
+        const isUserAdmin = user.role === "admin";
         
-        const isDeviceRegistered = user.devices.includes(deviceId);
-        if (!isDeviceRegistered) {
-          if (user.devices.length >= 2) {
-            return res.status(403).json({
-              success: false,
-              deviceLimitReached: true,
-              message: "Limite de aparelhos atingido! Esta licença já está vinculada a 2 dispositivos (ex: seu celular e seu PC). Entre em contato com o suporte para transferir a licença."
-            });
-          } else {
-            // Automatically register device
-            user.devices.push(deviceId);
-            db.logs.push({
-              id: `log-${Date.now()}`,
-              data: new Date().toISOString(),
-              usuario: username,
-              acao: "Aparelho Vinculado",
-              detalhes: `Novo dispositivo vinculado à conta de ${username} (${user.devices.length}/2).`
-            });
+        // Check if user is active (admins are always active)
+        if (!isUserAdmin && user.active === false) {
+          return res.status(403).json({
+            success: false,
+            unactivated: true,
+            message: "Sua conta ainda não foi ativada. Realize o pagamento único de R$ 99,90 e envie o comprovante para o WhatsApp (62) 98575-6881 para liberar seu acesso."
+          });
+        }
+
+        // Handle Device Registering/Checking
+        if (!isUserAdmin && deviceId) {
+          if (!user.devices) {
+            user.devices = [];
+          }
+          
+          const isDeviceRegistered = user.devices.includes(deviceId);
+          if (!isDeviceRegistered) {
+            if (user.devices.length >= 2) {
+              return res.status(403).json({
+                success: false,
+                deviceLimitReached: true,
+                message: "Limite de aparelhos atingido! Esta licença já está vinculada a 2 dispositivos (ex: seu celular e seu PC). Entre em contato com o suporte para transferir a licença."
+              });
+            } else {
+              // Automatically register device
+              user.devices.push(deviceId);
+              db.logs.push({
+                id: `log-${Date.now()}`,
+                data: new Date().toISOString(),
+                usuario: username,
+                acao: "Aparelho Vinculado",
+                detalhes: `Novo dispositivo vinculado à conta de ${username} (${user.devices.length}/2).`
+              });
+            }
           }
         }
-      }
 
-      // Return details and mock token
-      db.logs.push({
-        id: `log-${Date.now()}`,
-        data: new Date().toISOString(),
-        usuario: username,
-        acao: "Login realizado",
-        detalhes: `Usuário ${username} acessou o sistema.`
+        // Return details and mock token
+        db.logs.push({
+          id: `log-${Date.now()}`,
+          data: new Date().toISOString(),
+          usuario: username,
+          acao: "Login realizado",
+          detalhes: `Usuário ${username} acessou o sistema.`
+        });
+        saveDB(db);
+        return res.json({
+          success: true,
+          token: `token-${user.id}-${Date.now()}`,
+          user: { 
+            id: user.id, 
+            username: user.username, 
+            role: user.role,
+            active: user.active !== false,
+            devices: user.devices || []
+          }
+        });
+      } else {
+        return res.status(401).json({ success: false, message: "Usuário ou senha inválidos." });
+      }
+    } catch (err: any) {
+      console.error("[Login Error]", err);
+      return res.status(500).json({
+        success: false,
+        message: "Erro interno no servidor ao realizar login."
       });
-      saveDB(db);
-      res.json({
-        success: true,
-        token: `token-${user.id}-${Date.now()}`,
-        user: { 
-          id: user.id, 
-          username: user.username, 
-          role: user.role,
-          active: user.active !== false,
-          devices: user.devices || []
-        }
-      });
-    } else {
-      res.status(401).json({ success: false, message: "Usuário ou senha inválidos." });
     }
   });
 
   app.post("/api/auth/register", (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ success: false, message: "Preencha todos os campos." });
+    try {
+      const { username = "", password = "" } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ success: false, message: "Preencha todos os campos." });
+      }
+      const db = loadDB();
+      const exists = db.users.find(u => u && u.username && u.username.toLowerCase() === username.toString().toLowerCase());
+      if (exists) {
+        return res.status(400).json({ success: false, message: "Este usuário já existe." });
+      }
+      const newUser = {
+        id: `user-${Date.now()}`,
+        username,
+        password,
+        role: "user",
+        active: false, // New users are unactivated by default
+        devices: []    // Empty registered devices
+      };
+      db.users.push(newUser);
+      db.logs.push({
+        id: `log-${Date.now()}`,
+        data: new Date().toISOString(),
+        usuario: username,
+        acao: "Cadastro realizado",
+        detalhes: `Usuário ${username} se cadastrou e aguarda ativação de licença.`
+      });
+      saveDB(db);
+      return res.json({ 
+        success: true, 
+        message: "Cadastro realizado com sucesso! Sua conta está aguardando ativação após o pagamento de R$ 99,90. Entre em contato no WhatsApp (62) 98575-6881 enviando seu comprovante." 
+      });
+    } catch (err: any) {
+      console.error("[Register Error]", err);
+      return res.status(500).json({ success: false, message: "Erro ao cadastrar usuário." });
     }
-    const db = loadDB();
-    const exists = db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
-    if (exists) {
-      return res.status(400).json({ success: false, message: "Este usuário já existe." });
-    }
-    const newUser = {
-      id: `user-${Date.now()}`,
-      username,
-      password,
-      role: "user",
-      active: false, // New users are unactivated by default
-      devices: []    // Empty registered devices
-    };
-    db.users.push(newUser);
-    db.logs.push({
-      id: `log-${Date.now()}`,
-      data: new Date().toISOString(),
-      usuario: username,
-      acao: "Cadastro realizado",
-      detalhes: `Usuário ${username} se cadastrou e aguarda ativação de licença.`
-    });
-    saveDB(db);
-    res.json({ 
-      success: true, 
-      message: "Cadastro realizado com sucesso! Sua conta está aguardando ativação após o pagamento de R$ 99,90. Entre em contato no WhatsApp (62) 98575-6881 enviando seu comprovante." 
-    });
   });
 
   // Verify device and activation status on mount or tab change
