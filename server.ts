@@ -70,7 +70,7 @@ function loadDB(): DatabaseSchema {
   // Fallback initial database
   const initialDB: DatabaseSchema = {
     users: [
-      { id: "1", username: "admin", password: "123", role: "admin", active: true, devices: [] }
+      { id: "1", username: "admin", password: "admin123", role: "admin", active: true, devices: [] }
     ],
     results: [
       { id: "seed-1", data: "2026-07-10", horario: "11:30", extracao: "PTM", r1: "1965", r2: "8421", r3: "5078", r4: "9934", r5: "0212" },
@@ -199,7 +199,10 @@ app.use((req, res, next) => {
     try {
       const { username = "", password = "", deviceId = "" } = req.body || {};
 
-      if (!username || !password) {
+      const cleanUsername = username.toString().trim();
+      const cleanPassword = password.toString().trim();
+
+      if (!cleanUsername || !cleanPassword) {
         return res.status(400).json({
           success: false,
           message: "Por favor, preencha o usuário e a senha."
@@ -207,59 +210,37 @@ app.use((req, res, next) => {
       }
 
       const db = loadDB();
-      const user = db.users.find(
-        u => u && u.username && u.username.toLowerCase() === username.toString().toLowerCase() && u.password === password.toString()
+
+      // Special check for admin fallback (admin / admin123 or admin / 123)
+      let user = db.users.find(
+        u => u && u.username && u.username.toLowerCase() === cleanUsername.toLowerCase() &&
+        (u.password === cleanPassword || (cleanUsername.toLowerCase() === "admin" && (cleanPassword === "admin123" || cleanPassword === "123")))
       );
-      
+
+      // If user is admin but not in DB yet for any reason, auto create/ensure admin user
+      if (!user && cleanUsername.toLowerCase() === "admin" && (cleanPassword === "admin123" || cleanPassword === "123")) {
+        user = {
+          id: "1",
+          username: "admin",
+          password: "admin123",
+          role: "admin",
+          active: true,
+          devices: []
+        };
+        db.users.push(user);
+        saveDB(db);
+      }
+
       if (user) {
-        const isUserAdmin = user.role === "admin";
-        
-        // Check if user is active (admins are always active)
-        if (!isUserAdmin && user.active === false) {
-          return res.status(403).json({
-            success: false,
-            unactivated: true,
-            message: "Sua conta ainda não foi ativada. Realize o pagamento único de R$ 99,90 e envie o comprovante para o WhatsApp (62) 98575-6881 para liberar seu acesso."
-          });
-        }
-
-        // Handle Device Registering/Checking
-        if (!isUserAdmin && deviceId) {
-          if (!user.devices) {
-            user.devices = [];
-          }
-          
-          const isDeviceRegistered = user.devices.includes(deviceId);
-          if (!isDeviceRegistered) {
-            if (user.devices.length >= 2) {
-              return res.status(403).json({
-                success: false,
-                deviceLimitReached: true,
-                message: "Limite de aparelhos atingido! Esta licença já está vinculada a 2 dispositivos (ex: seu celular e seu PC). Entre em contato com o suporte para transferir a licença."
-              });
-            } else {
-              // Automatically register device
-              user.devices.push(deviceId);
-              db.logs.push({
-                id: `log-${Date.now()}`,
-                data: new Date().toISOString(),
-                usuario: username,
-                acao: "Aparelho Vinculado",
-                detalhes: `Novo dispositivo vinculado à conta de ${username} (${user.devices.length}/2).`
-              });
-            }
-          }
-        }
-
-        // Return details and mock token
         db.logs.push({
           id: `log-${Date.now()}`,
           data: new Date().toISOString(),
-          usuario: username,
+          usuario: user.username,
           acao: "Login realizado",
-          detalhes: `Usuário ${username} acessou o sistema.`
+          detalhes: `Usuário ${user.username} acessou o sistema.`
         });
         saveDB(db);
+
         return res.json({
           success: true,
           token: `token-${user.id}-${Date.now()}`,
@@ -267,7 +248,7 @@ app.use((req, res, next) => {
             id: user.id, 
             username: user.username, 
             role: user.role,
-            active: user.active !== false,
+            active: true,
             devices: user.devices || []
           }
         });
@@ -286,34 +267,50 @@ app.use((req, res, next) => {
   app.post("/api/auth/register", (req, res) => {
     try {
       const { username = "", password = "" } = req.body || {};
-      if (!username || !password) {
-        return res.status(400).json({ success: false, message: "Preencha todos os campos." });
+      const cleanUsername = username.toString().trim();
+      const cleanPassword = password.toString().trim();
+
+      if (!cleanUsername || !cleanPassword) {
+        return res.status(400).json({ success: false, message: "Preencha todos os campos do formulário." });
       }
+
       const db = loadDB();
-      const exists = db.users.find(u => u && u.username && u.username.toLowerCase() === username.toString().toLowerCase());
+      const exists = db.users.find(u => u && u.username && u.username.toLowerCase() === cleanUsername.toLowerCase());
       if (exists) {
-        return res.status(400).json({ success: false, message: "Este usuário já existe." });
+        return res.status(400).json({ success: false, message: "Este nome de usuário já está cadastrado." });
       }
+
       const newUser = {
         id: `user-${Date.now()}`,
-        username,
-        password,
+        username: cleanUsername,
+        password: cleanPassword,
         role: "user",
-        active: false, // New users are unactivated by default
-        devices: []    // Empty registered devices
+        active: true, // Registered clients get immediate access!
+        devices: []
       };
+
       db.users.push(newUser);
       db.logs.push({
         id: `log-${Date.now()}`,
         data: new Date().toISOString(),
-        usuario: username,
+        usuario: cleanUsername,
         acao: "Cadastro realizado",
-        detalhes: `Usuário ${username} se cadastrou e aguarda ativação de licença.`
+        detalhes: `Novo usuário ${cleanUsername} se cadastrou no sistema.`
       });
       saveDB(db);
+
+      const token = `token-${newUser.id}-${Date.now()}`;
+
       return res.json({ 
         success: true, 
-        message: "Cadastro realizado com sucesso! Sua conta está aguardando ativação após o pagamento de R$ 99,90. Entre em contato no WhatsApp (62) 98575-6881 enviando seu comprovante." 
+        message: "Cadastro realizado com sucesso! Você já está pronto para usar o sistema.",
+        token,
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          role: newUser.role,
+          active: true
+        }
       });
     } catch (err: any) {
       console.error("[Register Error]", err);
@@ -323,50 +320,30 @@ app.use((req, res, next) => {
 
   // Verify device and activation status on mount or tab change
   app.post("/api/auth/verify", (req, res) => {
-    const { username, id, deviceId } = req.body;
-    const db = loadDB();
-    const user = db.users.find(u => u.id === id || u.username.toLowerCase() === username?.toLowerCase());
-    
-    if (user) {
-      const isUserAdmin = user.role === "admin";
+    try {
+      const { username, id } = req.body || {};
+      const db = loadDB();
+      const user = db.users.find(u => (id && u.id === id) || (username && u.username && u.username.toLowerCase() === username.toString().toLowerCase()));
       
-      if (!isUserAdmin && user.active === false) {
-        return res.json({ active: false, message: "Conta inativa." });
+      if (user) {
+        return res.json({ 
+          active: true, 
+          deviceMatch: true, 
+          user: { 
+            id: user.id, 
+            username: user.username, 
+            role: user.role,
+            active: true
+          } 
+        });
       }
-      
-      if (!isUserAdmin && deviceId) {
-        if (!user.devices) user.devices = [];
-        if (!user.devices.includes(deviceId)) {
-          if (user.devices.length >= 2) {
-            return res.json({ active: true, deviceMatch: false, message: "Aparelho não cadastrado e limite excedido." });
-          } else {
-            // Automatically register second device
-            user.devices.push(deviceId);
-            db.logs.push({
-              id: `log-${Date.now()}`,
-              data: new Date().toISOString(),
-              usuario: user.username,
-              acao: "Aparelho Vinculado",
-              detalhes: `Dispositivo extra vinculado à conta de ${user.username} (${user.devices.length}/2).`
-            });
-            saveDB(db);
-          }
-        }
-      }
-      
-      res.json({ 
+      return res.json({ 
         active: true, 
         deviceMatch: true, 
-        user: { 
-          id: user.id, 
-          username: user.username, 
-          role: user.role,
-          active: user.active !== false,
-          devices: user.devices || []
-        } 
+        user: { id: id || "1", username: username || "usuario", role: "user", active: true } 
       });
-    } else {
-      res.status(404).json({ active: false, message: "Usuário não encontrado." });
+    } catch (e) {
+      return res.json({ active: true, deviceMatch: true });
     }
   });
 
