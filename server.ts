@@ -3,6 +3,9 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
+const _filename = fileURLToPath(import.meta.url);
+const _dirname = path.dirname(_filename);
+
 interface DatabaseSchema {
   users: any[];
   results: any[];
@@ -24,9 +27,9 @@ let inMemoryDB: DatabaseSchema | null = null;
 function getDBFilePath(): string {
   const candidatePaths = [
     path.join(process.cwd(), "database.json"),
-    path.join(__dirname, "database.json"),
-    path.join(__dirname, "..", "database.json"),
-    path.join(__dirname, "..", "..", "database.json")
+    path.join(_dirname, "database.json"),
+    path.join(_dirname, "..", "database.json"),
+    path.join(_dirname, "..", "..", "database.json")
   ];
 
   for (const candidate of candidatePaths) {
