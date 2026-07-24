@@ -126,6 +126,17 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// CORS & Preflight middleware for Vercel/Netlify cross-origin & serverless deployments
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user, x-vercel-forwarded-path");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Safely handle stringified bodies or missing body objects in serverless environments
 app.use((req, res, next) => {
   if (typeof req.body === "string" && req.body.trim()) {
@@ -198,7 +209,7 @@ app.use((req, res, next) => {
 
   // API Routes
   // 1. Auth API
-  app.post("/api/auth/login", (req, res) => {
+  app.post(["/api/auth/login", "/auth/login"], (req, res) => {
     try {
       const { username = "", password = "", deviceId = "" } = req.body || {};
 
@@ -267,7 +278,7 @@ app.use((req, res, next) => {
     }
   });
 
-  app.post("/api/auth/register", (req, res) => {
+  app.post(["/api/auth/register", "/auth/register"], (req, res) => {
     try {
       const { username = "", password = "" } = req.body || {};
       const cleanUsername = username.toString().trim();
@@ -322,7 +333,7 @@ app.use((req, res, next) => {
   });
 
   // Verify device and activation status on mount or tab change
-  app.post("/api/auth/verify", (req, res) => {
+  app.post(["/api/auth/verify", "/auth/verify"], (req, res) => {
     try {
       const { username, id } = req.body || {};
       const db = loadDB();
